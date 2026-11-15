@@ -13,13 +13,17 @@ PLAYER_HEIGHT = 64 #px
 ENEMY_WIDTH = 64 #px
 ENEMY_HEIGHT = 64 #px
 ENEMY_STOPPING_DISTANCE = 64 #px
+MENU = "menu"
+PLAYING = "playing"
+GAME_OVER = "game_over"
 
 #configuration variables
 screen_width = 1280
 screen_height = 720
 fps = 60
 players_amt = 2
-debug_controller_connections = False
+start_intermission = True
+debug_controller_connections = True
 debug_movement = False
 debug_movement_vectors = False
 debug_aiming = False
@@ -27,7 +31,7 @@ debug_aiming_vectors = False
 debug_shooting = False
 debug_combat = False
 debug_enemies = False
-debug_waves = True
+debug_waves = False
 
 #functions
 def debug_print(category, message):
@@ -55,8 +59,40 @@ def spawn_enemy():
     elif edge == "right":
         return Enemy(screen_width-ENEMY_WIDTH, random.randint(0, screen_height-ENEMY_HEIGHT), ENEMY_WIDTH, ENEMY_HEIGHT, generate_enemy_colour())
 
-#classes
+def start_game():
+    global projectiles, players, enemies, current_wave, start_intermission
+    start_intermission = True
+    projectiles = []
+    players = []
+    for p in range(players_amt):
+        players.append(Player(random.uniform(0, screen_width - PLAYER_WIDTH), random.uniform(0, screen_height - PLAYER_HEIGHT), generate_player_colour(), p+1))
+    for player, controller_id in zip(players, active_controllers):
+        player.joystick_id = controller_id
+    enemies = []
+    current_wave = Wave(1, 5, 1.5)
+    current_wave.wait_active = True
 
+def draw_menu(screen):
+    title_text = menu_title_font.render("FIGHTNANS", True, (255, 255, 255))
+    title_x = (screen_width - title_text.get_width()) / 2
+    screen.blit(title_text, (title_x, 180))
+    for i, option in enumerate(menu_options):
+        colour = (255, 255, 255) if i == selected_menu_option else (140, 140, 140)
+        option_text = menu_option_font.render(option, True, colour)
+        option_x = (screen_width - option_text.get_width()) / 2
+        screen.blit(option_text, (option_x, 390 + i * 70))
+
+def draw_game_over(screen):
+    title_text = menu_title_font.render("GAME OVER", True, (217, 71, 71))
+    title_x = (screen_width - title_text.get_width()) / 2
+    screen.blit(title_text, (title_x, 180))
+    for i, option in enumerate(game_over_options):
+        colour = (255, 255, 255) if i == selected_game_over_option else (140, 140, 140)
+        option_text = menu_option_font.render(option, True, colour)
+        option_x = (screen_width - option_text.get_width()) / 2
+        screen.blit(option_text, (option_x, 390 + i * 70))
+
+#classes
 class Wave:
     def __init__(self, wave_number, enemies_per_wave, spawn_interval):
         self.wave_number = wave_number
@@ -91,6 +127,11 @@ class Wave:
             return True
         else:
             return False
+    
+    def start(self):
+        self.wait_active = False
+        self.wait_elapsed = 0
+        self.spawn_elapsed = self.spawn_interval
 
 class Projectile:
     def __init__(self, pos, direction, colour, speed=600, damage=25, owner="player"):
@@ -368,27 +409,30 @@ class Enemy:
         pygame.draw.line(screen, (255,255,255), centre, aim_endpoint, 4)
 
 #variables
-projectiles = []
-players = []
-for p in range(players_amt):
-    players.append(Player(random.uniform(0, screen_width - PLAYER_WIDTH), random.uniform(0, screen_height - PLAYER_HEIGHT), generate_player_colour(), p+1))
-enemies = []
-current_wave = Wave(1, 5, 1.5)
 active_controllers = {}
 
 #initialisation
+start_game()
 pygame.init()
 wave_font = pygame.font.Font("fonts/PixelifySans-Bold.ttf", 48)
 sub_wave_font = pygame.font.Font("fonts/PixelifySans-SemiBold.ttf", 36)
 player_font = pygame.font.Font("fonts/PixelifySans-Medium.ttf", 20)
+menu_title_font = pygame.font.Font("fonts/Bungee-Regular.ttf", 96)
+menu_option_font = pygame.font.Font("fonts/PixelifySans-SemiBold.ttf", 40)
+
 icon = pygame.image.load("fightnans.ico")
 pygame.display.set_icon(icon)
 pygame.joystick.init()
 
 screen = pygame.display.set_mode((screen_width, screen_height))
-pygame.display.set_caption("FIGHTNANS Prototype")
+pygame.display.set_caption("FIGHTNANS Prototype v0.3")
 clock = pygame.time.Clock()
 running = True
+game_state = MENU
+menu_options = ["PLAY", "QUIT"]
+selected_menu_option = 0
+game_over_options = ["RESTART", "MAIN MENU"]
+selected_game_over_option = 0
 
 #game loop
 while running:
@@ -414,109 +458,154 @@ while running:
         #controller disconnected event
         if event.type == pygame.JOYDEVICEREMOVED:
             instance_id = event.instance_id
-            debug_print(debug_controller_connections, f"------------------------------ \nController Disconnected. \nController ID: {instance_id} \nController Name: {joystick.get_name()}")
+            disconnected_joystick = active_controllers.get(instance_id)
+            controller_name = disconnected_joystick.get_name() if disconnected_joystick else "Unknown Controller"
+            debug_print(debug_controller_connections, f"------------------------------ \nController Disconnected. \nController ID: {instance_id} \nController Name: {controller_name}")
             if instance_id in active_controllers:
                 del active_controllers[instance_id]
             for player in players:
                 if player.joystick_id == instance_id:
                     player.joystick_id = None
-                    debug_print(debug_controller_connections, f"Controller {joystick.get_name()} (ID {instance_id}) unassigned from player.")
+                    debug_print(debug_controller_connections, f"Controller {controller_name} (ID {instance_id}) unassigned from player.")
                     if debug_controller_connections:
                         print(f"Active Controllers: {len(list(active_controllers.keys()))} ({list(active_controllers.keys())})")
                         for i, player in enumerate(players):
                             print(f"Player {i + 1}: Controller {player.joystick_id}")
                     break
+        #main menu controls
+        if game_state == MENU:
+            if event.type == pygame.JOYBUTTONDOWN:
+                if event.button == 0:
+                    if selected_menu_option == 0:
+                        start_game()
+                        game_state = PLAYING
+                    elif selected_menu_option == 1:
+                        running = False
+            if event.type == pygame.JOYHATMOTION:
+                if event.value[1] == 1:
+                    selected_menu_option = (selected_menu_option - 1) % len(menu_options)
+                elif event.value[1] == -1:
+                    selected_menu_option = (selected_menu_option + 1) % len(menu_options)
+        #game over menu controls
+        if game_state == GAME_OVER:
+            if event.type == pygame.JOYBUTTONDOWN:
+                if event.button == 0:
+                    if selected_game_over_option == 0:
+                        start_game()
+                        game_state = PLAYING
+                    elif selected_game_over_option == 1:
+                        game_state = MENU
+            if event.type == pygame.JOYHATMOTION:
+                if event.value[1] == 1:
+                    selected_game_over_option = (selected_game_over_option - 1) % len(game_over_options)
+                elif event.value[1] == -1:
+                    selected_game_over_option = (selected_game_over_option + 1) % len(game_over_options)
     
     dt = clock.tick(fps) /1000
     screen.fill(BG_COLOUR)
     
-    #update + draw player
-    for player in players:
-        if player.alive:
-            player.update(active_controllers, dt, projectiles, enemies, players)
-            player.draw(screen)
+    #draw menu
+    if game_state == MENU:
+        draw_menu(screen)
     
-    #update enemies
-    for enemy in enemies:
-        if enemy.alive:
-            enemy.update(dt, players, projectiles)
-    enemies = [enemy for enemy in enemies if enemy.alive]
-    
-    #update projectiles
-    for projectile in projectiles:
-        projectile.update(dt)
-        #player-enemy hits
-        if projectile.owner == "player":
-            for enemy in enemies:
-                if not enemy.alive:
-                    continue
-                #collision detection
-                if projectile.check_collision(enemy):
-                    projectile.alive = False
-                    enemy.health -= projectile.damage
-                    debug_print(debug_combat, f"Player projectile collided with enemy. Enemy health reduced by {projectile.damage}. Enemy health: {enemy.health}.")
-                    if enemy.health <= 0:
-                        enemy.health = 0
-                        enemy.alive = False
-                        debug_print(debug_combat, "Enemy killed.")
-                    break
-        #enemy-player hits
-        elif projectile.owner == "enemy":
-            for player in players:
-                if not player.alive:
-                    continue
-                #collision detection
-                if projectile.check_collision(player):
-                    projectile.alive = False
-                    player.health -= projectile.damage
-                    debug_print(debug_combat, f"Enemy projectile collided with player. Player health reduced by {projectile.damage}. Player health: {player.health}.")
-                    if player.health <= 0:
-                        player.health = 0
-                        player.alive = False
-                        debug_print(debug_combat, "Player killed.")
-                    break
-    
-    #draw enemies and projectiles
-    for enemy in enemies:
-        enemy.draw(screen)
-    for projectile in projectiles:
-        projectile.draw(screen)
-    
-    for player in players:
-        if player.alive:
-            player.draw_name(screen)
-            player.draw_floating_health_bar(screen)
-        player.draw_psup(screen)
-    
-    #clear dead objects
-    enemies = [enemy for enemy in enemies if enemy.alive]
-    projectiles = [projectile for projectile in projectiles if projectile.alive]
-    
-    #create wave
-    current_wave.update(dt, enemies)
-    
-    if current_wave.wait_complete():
-        next_wave_number = current_wave.wave_number + 1
-        next_wave_size = current_wave.enemies_per_wave + 2
-        next_spawn_interval = current_wave.spawn_interval
-        current_wave = Wave(next_wave_number, next_wave_size, next_spawn_interval)
-    
-    #draw wave text
-    if not current_wave.complete(enemies):
-        wave_text = wave_font.render(f"WAVE {current_wave.wave_number}", True, (255, 255, 255))
-    else:
-        wave_text = wave_font.render(f"WAVE {current_wave.wave_number} COMPLETE", True, (255, 255, 255))
-    wave_x = (screen_width - wave_text.get_width()) / 2
-    screen.blit(wave_text, (wave_x, 20))
-    #draw wait/enemies text
-    if current_wave.wait_active:
-        wait_text = sub_wave_font.render(f"NEXT WAVE IN {current_wave.wait_duration-current_wave.wait_elapsed:.1f}", True, (200, 200, 200))
-        wait_x = (screen_width - wait_text.get_width()) / 2
-        screen.blit(wait_text, (wait_x, 60))
-    else:
-        enemies_text = sub_wave_font.render(f"{len(enemies) + (current_wave.enemies_per_wave - current_wave.enemies_spawned)}/{current_wave.enemies_per_wave} ENEMIES REMAINING", True, (200, 200, 200))
-        enemies_x = (screen_width - enemies_text.get_width()) / 2
-        screen.blit(enemies_text, (enemies_x, 60))
+    elif game_state == PLAYING:
+        #update + draw player
+        for player in players:
+            if player.alive:
+                player.update(active_controllers, dt, projectiles, enemies, players)
+                player.draw(screen)
+        
+        #update enemies
+        for enemy in enemies:
+            if enemy.alive:
+                enemy.update(dt, players, projectiles)
+        enemies = [enemy for enemy in enemies if enemy.alive]
+        
+        #update projectiles
+        for projectile in projectiles:
+            projectile.update(dt)
+            #player-enemy hits
+            if projectile.owner == "player":
+                for enemy in enemies:
+                    if not enemy.alive:
+                        continue
+                    #collision detection
+                    if projectile.check_collision(enemy):
+                        projectile.alive = False
+                        enemy.health -= projectile.damage
+                        debug_print(debug_combat, f"Player projectile collided with enemy. Enemy health reduced by {projectile.damage}. Enemy health: {enemy.health}.")
+                        if enemy.health <= 0:
+                            enemy.health = 0
+                            enemy.alive = False
+                            debug_print(debug_combat, "Enemy killed.")
+                        break
+            #enemy-player hits
+            elif projectile.owner == "enemy":
+                for player in players:
+                    if not player.alive:
+                        continue
+                    #collision detection
+                    if projectile.check_collision(player):
+                        projectile.alive = False
+                        player.health -= projectile.damage
+                        debug_print(debug_combat, f"Enemy projectile collided with player. Player health reduced by {projectile.damage}. Player health: {player.health}.")
+                        if player.health <= 0:
+                            player.health = 0
+                            player.alive = False
+                            debug_print(debug_combat, "Player killed.")
+                        break
+        
+        #draw enemies and projectiles
+        for enemy in enemies:
+            enemy.draw(screen)
+        for projectile in projectiles:
+            projectile.draw(screen)
+        
+        for player in players:
+            if player.alive:
+                player.draw_name(screen)
+                player.draw_floating_health_bar(screen)
+            player.draw_psup(screen)
+        
+        #clear dead objects
+        enemies = [enemy for enemy in enemies if enemy.alive]
+        projectiles = [projectile for projectile in projectiles if projectile.alive]
+        
+        #create wave
+        current_wave.update(dt, enemies)
+        
+        if current_wave.wait_complete():
+            if start_intermission:
+                current_wave.start()
+                start_intermission = False
+            else:
+                next_wave_number = current_wave.wave_number + 1
+                next_wave_size = current_wave.enemies_per_wave + 2
+                next_spawn_interval = current_wave.spawn_interval
+                current_wave = Wave(next_wave_number, next_wave_size, next_spawn_interval)
+        
+        #draw wave text
+        if not current_wave.complete(enemies):
+            wave_text = wave_font.render(f"WAVE {current_wave.wave_number}", True, (255, 255, 255))
+        else:
+            wave_text = wave_font.render(f"WAVE {current_wave.wave_number} COMPLETE", True, (255, 255, 255))
+        wave_x = (screen_width - wave_text.get_width()) / 2
+        screen.blit(wave_text, (wave_x, 20))
+        #draw wait/enemies text
+        if current_wave.wait_active:
+            intermission_text = "STARTING IN" if start_intermission else "NEXT WAVE IN"
+            wait_text = sub_wave_font.render(f"{intermission_text} {current_wave.wait_duration-current_wave.wait_elapsed:.1f}", True, (200, 200, 200))
+            wait_x = (screen_width - wait_text.get_width()) / 2
+            screen.blit(wait_text, (wait_x, 60))
+        else:
+            enemies_text = sub_wave_font.render(f"{len(enemies) + (current_wave.enemies_per_wave - current_wave.enemies_spawned)}/{current_wave.enemies_per_wave} ENEMIES REMAINING", True, (200, 200, 200))
+            enemies_x = (screen_width - enemies_text.get_width()) / 2
+            screen.blit(enemies_text, (enemies_x, 60))
+        
+        if not any(player.alive for player in players):
+            game_state = GAME_OVER
+    elif game_state == GAME_OVER:
+        draw_game_over(screen)
     
     pygame.display.update()
 
