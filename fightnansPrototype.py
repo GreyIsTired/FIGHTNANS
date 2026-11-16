@@ -23,6 +23,7 @@ screen_height = 720
 fps = 60
 players_amt = 2
 start_intermission = True
+enemy_health_draw = True
 debug_controller_connections = True
 debug_movement = False
 debug_movement_vectors = False
@@ -581,7 +582,8 @@ while running:
         #draw enemies and projectiles
         for enemy in enemies:
             enemy.draw(screen)
-            enemy.draw_health_bar(screen)
+            if enemy_health_draw == True:
+                enemy.draw_health_bar(screen)
         for projectile in projectiles:
             projectile.draw(screen)
         
