@@ -50,7 +50,7 @@ def generate_enemy_colour():
 
 def spawn_enemy():
     edge = random.choice(["top", "bottom", "left", "right"])
-    size_mult = random.choice([0.5, 0.75, 1, 1.25, 1.5])
+    size_mult = random.choice([0.5, 0.75, 0.75, 1, 1, 1, 1.25, 1.25, 1.5])
     width = ENEMY_WIDTH * size_mult
     height = ENEMY_HEIGHT * size_mult
     if edge == "top":
