@@ -50,14 +50,17 @@ def generate_enemy_colour():
 
 def spawn_enemy():
     edge = random.choice(["top", "bottom", "left", "right"])
+    size_mult = random.choice([0.5, 0.75, 1, 1.25, 1.5])
+    width = ENEMY_WIDTH * size_mult
+    height = ENEMY_HEIGHT * size_mult
     if edge == "top":
-        return Enemy(random.randint(0, screen_width-ENEMY_WIDTH), 0, ENEMY_WIDTH, ENEMY_HEIGHT, generate_enemy_colour())
+        return Enemy(random.uniform(0, screen_width-width), 0, width, height, generate_enemy_colour())
     elif edge == "bottom":
-        return Enemy(random.randint(0, screen_width-ENEMY_WIDTH), screen_height-ENEMY_HEIGHT, ENEMY_WIDTH, ENEMY_HEIGHT, generate_enemy_colour())
+        return Enemy(random.uniform(0, screen_width-width), screen_height-height, width, height, generate_enemy_colour())
     elif edge == "left":
-        return Enemy(0, random.randint(0, screen_height-ENEMY_HEIGHT), ENEMY_WIDTH, ENEMY_HEIGHT, generate_enemy_colour())
+        return Enemy(0, random.uniform(0, screen_height-height), width, height, generate_enemy_colour())
     elif edge == "right":
-        return Enemy(screen_width-ENEMY_WIDTH, random.randint(0, screen_height-ENEMY_HEIGHT), ENEMY_WIDTH, ENEMY_HEIGHT, generate_enemy_colour())
+        return Enemy(screen_width-width, random.uniform(0, screen_height-height), width, height, generate_enemy_colour())
 
 def start_game():
     global projectiles, players, enemies, current_wave, start_intermission
@@ -337,8 +340,9 @@ class Enemy:
         self.pos = pygame.Vector2(x, y)
         self.width = width
         self.height = height
-        self.speed = 200 #px/s
-        self.health = ((self.width+self.height) * 0.78125) #100 at 64x64
+        self.speed = 200 * (64 / self.width) #px/s
+        self.max_health = ((self.width+self.height) * 0.78125) #100 at 64x64/1.0
+        self.health = self.max_health
         self.alive = True
         self.preferred_distance = 250 #px
         self.fire_interval = random.uniform(0.5, 1.5) #s between shots
@@ -353,7 +357,7 @@ class Enemy:
         #find nearest
         closest_player = None
         closest_distance = float("inf") #enemy will always want to find a player
-        enemy_centre = self.pos + pygame.Vector2(ENEMY_WIDTH / 2, ENEMY_HEIGHT / 2)
+        enemy_centre = self.pos + pygame.Vector2(self.width / 2, self.height / 2)
         for player in players:
             if not player.alive:
                 continue
@@ -392,21 +396,40 @@ class Enemy:
             if self.pos.x < 0:
                 self.pos.x = 0
                 debug_print(debug_movement, f"Enemy attempted to exceed negative X screen boundary.")
-            if self.pos.x > screen_width - ENEMY_WIDTH:
-                self.pos.x = screen_width - ENEMY_WIDTH
+            if self.pos.x > screen_width - self.width:
+                self.pos.x = screen_width - self.height
                 debug_print(debug_movement, f"Enemy attempted to exceed positive X screen boundary.")
             if self.pos.y < 0:
                 self.pos.y = 0
                 debug_print(debug_movement, f"Enemy attempted to exceed positive Y screen boundary.")
-            if self.pos.y > screen_height - ENEMY_HEIGHT:
-                self.pos.y = screen_height - ENEMY_HEIGHT
+            if self.pos.y > screen_height - self.height:
+                self.pos.y = screen_height - self.height
                 debug_print(debug_movement, f"Enemy attempted to exceed negative Y screen boundary.")
     
     def draw(self, screen):
-        pygame.draw.rect(screen, self.colour, (int(self.pos.x), int(self.pos.y), ENEMY_WIDTH, ENEMY_HEIGHT))
-        centre =  self.pos + pygame.Vector2(ENEMY_WIDTH/2, ENEMY_HEIGHT/2)
-        aim_endpoint = centre + self.aim_direction * 48
+        pygame.draw.rect(screen, self.colour, (int(self.pos.x), int(self.pos.y), self.width, self.height))
+        centre =  self.pos + pygame.Vector2(self.width/2, self.height/2)
+        aim_endpoint = centre + self.aim_direction * (self.width * 0.75)
         pygame.draw.line(screen, (255,255,255), centre, aim_endpoint, 4)
+    
+    def draw_health_bar(self, screen):
+        bar_width = self.width
+        bar_height = 6
+        bar_x = self.pos.x
+        bar_y = self.pos.y - 12
+        health_percentage = self.health / self.max_health
+        if health_percentage >= 0.7:
+            health_colour = (90, 197, 79)
+        elif health_percentage >= 0.5:
+            health_colour = (229, 211, 74)
+        elif health_percentage >= 0.3:
+            health_colour = (229, 138, 53)
+        else:
+            health_colour = (217, 71, 71)
+        pygame.draw.rect(screen, (60, 60, 60),
+                        (bar_x, bar_y, bar_width, bar_height))
+        pygame.draw.rect(screen, health_colour,
+                        (bar_x, bar_y, bar_width * health_percentage, bar_height))
 
 #variables
 active_controllers = {}
@@ -558,6 +581,7 @@ while running:
         #draw enemies and projectiles
         for enemy in enemies:
             enemy.draw(screen)
+            enemy.draw_health_bar(screen)
         for projectile in projectiles:
             projectile.draw(screen)
         
