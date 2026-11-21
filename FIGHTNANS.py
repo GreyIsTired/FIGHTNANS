@@ -2,7 +2,6 @@
 import pygame
 import sys
 import random
-import time
 
 #constants
 BG_COLOUR = (25, 25, 25)
@@ -13,9 +12,13 @@ PLAYER_HEIGHT = 64 #px
 ENEMY_WIDTH = 64 #px
 ENEMY_HEIGHT = 64 #px
 ENEMY_STOPPING_DISTANCE = 64 #px
+OBJECTIVE_WIDTH = 128 #px
+OBJECTIVE_HEIGHT = 128 #px
 MENU = "menu"
 PLAYING = "playing"
 GAME_OVER = "game_over"
+COMPLETE = "complete"
+PLAYER_COLOURS = {1:(70, 130, 220),2:(70, 190, 90)}
 
 #configuration variables
 screen_width = 1280
@@ -24,54 +27,41 @@ fps = 60
 players_amt = 2
 start_intermission = True
 enemy_health_draw = True
-debug_controller_connections = True
+debug_controller_connections = False
 debug_movement = False
 debug_movement_vectors = False
 debug_aiming = False
 debug_aiming_vectors = False
 debug_shooting = False
 debug_combat = False
-debug_enemies = False
-debug_waves = False
 
 #functions
 def debug_print(category, message):
     if category:
         print(message)
 
-def generate_player_colour():
-    colour = random.choice(["blue", "green"])
-    if colour == "blue":
-        return (random.randint(40, 100), random.randint(100, 170), random.randint(170, 240))
-    elif colour == "green":
-        return (random.randint(40, 100), random.randint(140, 210), random.randint(70, 140))
-
-def generate_enemy_colour():
-    return (random.randint(160, 230), random.randint(45, 100), random.randint(45, 100))
-
 def spawn_enemy():
     edge = random.choice(["top", "bottom", "left", "right"])
-    size_mult = random.choice([0.5, 0.75, 0.75, 1, 1, 1, 1.25, 1.25, 1.5])
-    width = ENEMY_WIDTH * size_mult
-    height = ENEMY_HEIGHT * size_mult
     if edge == "top":
-        return Enemy(random.uniform(0, screen_width-width), 0, width, height, generate_enemy_colour())
+        return Enemy(random.uniform(0, screen_width-ENEMY_WIDTH), 0, ENEMY_WIDTH, ENEMY_HEIGHT, (170,90,90))
     elif edge == "bottom":
-        return Enemy(random.uniform(0, screen_width-width), screen_height-height, width, height, generate_enemy_colour())
+        return Enemy(random.uniform(0, screen_width-ENEMY_WIDTH), screen_height-ENEMY_HEIGHT, ENEMY_WIDTH, ENEMY_HEIGHT, (170,90,90))
     elif edge == "left":
-        return Enemy(0, random.uniform(0, screen_height-height), width, height, generate_enemy_colour())
+        return Enemy(0, random.uniform(0, screen_height-ENEMY_HEIGHT), ENEMY_WIDTH, ENEMY_HEIGHT, (170,90,90))
     elif edge == "right":
-        return Enemy(screen_width-width, random.uniform(0, screen_height-height), width, height, generate_enemy_colour())
+        return Enemy(screen_width-ENEMY_WIDTH, random.uniform(0, screen_height-ENEMY_HEIGHT), ENEMY_WIDTH, ENEMY_HEIGHT, (170,90,90))
 
 def start_game():
-    global projectiles, players, enemies, current_wave, start_intermission
+    global projectiles, players, enemies, objective_objects, current_wave, start_intermission
     start_intermission = True
     projectiles = []
     players = []
+    objective_objects = []
     for p in range(players_amt):
-        players.append(Player(random.uniform(0, screen_width - PLAYER_WIDTH), random.uniform(0, screen_height - PLAYER_HEIGHT), generate_player_colour(), p+1))
+        players.append(Player(random.uniform(0, screen_width - PLAYER_WIDTH), random.uniform(0, screen_height - PLAYER_HEIGHT), PLAYER_COLOURS[p+1], p+1))
     for player, controller_id in zip(players, active_controllers):
         player.joystick_id = controller_id
+    objective_objects.append(Objective(random.uniform(0, screen_width - OBJECTIVE_WIDTH), random.uniform(0, screen_height - OBJECTIVE_HEIGHT)))
     enemies = []
     current_wave = Wave(1, 5, 1.5)
     current_wave.wait_active = True
@@ -92,6 +82,16 @@ def draw_game_over(screen):
     screen.blit(title_text, (title_x, 180))
     for i, option in enumerate(game_over_options):
         colour = (255, 255, 255) if i == selected_game_over_option else (140, 140, 140)
+        option_text = menu_option_font.render(option, True, colour)
+        option_x = (screen_width - option_text.get_width()) / 2
+        screen.blit(option_text, (option_x, 390 + i * 70))
+
+def draw_mission_complete(screen):
+    title_text = menu_title_font.render("MISSION COMPLETE", True, (71, 217, 71))
+    title_x = (screen_width - title_text.get_width()) / 2
+    screen.blit(title_text, (title_x, 180))
+    for i, option in enumerate(mission_complete_options):
+        colour = (255, 255, 255) if i == selected_mission_complete_option else (140, 140, 140)
         option_text = menu_option_font.render(option, True, colour)
         option_x = (screen_width - option_text.get_width()) / 2
         screen.blit(option_text, (option_x, 390 + i * 70))
@@ -171,13 +171,11 @@ class Player:
         self.health = self.max_health
         self.alive = True
         self.speed = 300 #px/s
-        self.velocity = pygame.Vector2(0, 0)
         self.aim_direction = pygame.Vector2(1, 0)
         self.shooting = False
     
     def update(self, joysticks, dt, projectiles, enemies, players):
         if not self.alive or self.joystick_id is None or self.joystick_id not in joysticks:
-            self.velocity = pygame.Vector2(0, 0)
             return
         joystick = joysticks[self.joystick_id]
         
@@ -232,9 +230,6 @@ class Player:
         if self.pos.y > screen_height - PLAYER_HEIGHT:
             self.pos.y = screen_height - PLAYER_HEIGHT
             debug_print(debug_movement, f"Player attempted to exceed negative Y screen boundary.")
-        
-        #record velocity
-        self.velocity = (self.pos - previous_pos) / dt
         
         #aiming
         debug_print(debug_aiming_vectors, f"Right stick: X={joystick.get_axis(2):.2f}, Y={joystick.get_axis(3):.2f}")
@@ -341,14 +336,14 @@ class Enemy:
         self.pos = pygame.Vector2(x, y)
         self.width = width
         self.height = height
-        self.speed = 200 * (64 / self.width) #px/s
-        self.max_health = ((self.width+self.height) * 0.78125) #100 at 64x64/1.0
+        self.speed = 200
+        self.max_health = 100
         self.health = self.max_health
         self.alive = True
         self.preferred_distance = 250 #px
         self.fire_interval = random.uniform(0.5, 1.5) #s between shots
         self.fire_elapsed = 0 #s since shot
-        self.projectile_speed = 350
+        self.projectile_speed = 250
         self.projectile_damage = 10
         self.movement_direction = pygame.Vector2(0, 0)
         self.inaccuracy = inaccuracy
@@ -371,13 +366,11 @@ class Enemy:
         #target player
         if closest_player is not None:
             player_centre = closest_player.pos + pygame.Vector2(PLAYER_WIDTH / 2, PLAYER_HEIGHT / 2)
-            distance = enemy_centre.distance_to(player_centre)
             movement_direction = player_centre - enemy_centre
             if movement_direction.length_squared() > 0:
                 self.movement_direction = movement_direction.normalize()
-            travel_time = distance / self.projectile_speed
-            predicted_position = player_centre + closest_player.velocity * travel_time
-            direction = predicted_position - enemy_centre
+            #aim towards player
+            direction = player_centre - enemy_centre
             if direction.length_squared() > 0:
                 self.aim_direction = direction.normalize()
             
@@ -398,7 +391,7 @@ class Enemy:
                 self.pos.x = 0
                 debug_print(debug_movement, f"Enemy attempted to exceed negative X screen boundary.")
             if self.pos.x > screen_width - self.width:
-                self.pos.x = screen_width - self.height
+                self.pos.x = screen_width - self.width
                 debug_print(debug_movement, f"Enemy attempted to exceed positive X screen boundary.")
             if self.pos.y < 0:
                 self.pos.y = 0
@@ -432,6 +425,35 @@ class Enemy:
         pygame.draw.rect(screen, health_colour,
                         (bar_x, bar_y, bar_width * health_percentage, bar_height))
 
+class Objective:
+    def __init__(self, x, y):
+        self.pos = pygame.Vector2(x, y)
+        self.width = OBJECTIVE_WIDTH
+        self.height = OBJECTIVE_HEIGHT
+        self.colour = (220, 220, 80)
+        self.max_health = 500
+        self.health = self.max_health
+        self.alive = True
+        self.spawn_req = random.randint(3, 5)
+        self.name = random.choice(["Pension Machine", "Denture Polisher", "Fountain of Un-Youth", "Biscuit Tin Production Line", "Wrinkle Generator", "Box of Hip Bones", "Arthritis & Co. Scrabble Stand", "Arthritis & Co. Bingo Hall"])
+    
+    def draw(self, screen):
+            pygame.draw.rect(screen, self.colour, (int(self.pos.x), int(self.pos.y), self.width, self.height))
+            centre =  self.pos + pygame.Vector2(self.width/2, self.height/2)
+    
+    def draw_health_bar(self, screen):
+            bar_width = self.width
+            bar_height = 6
+            bar_x = self.pos.x
+            bar_y = self.pos.y - 12
+            health_percentage = self.health / self.max_health
+            health_colour = (170, 170, 80)
+            pygame.draw.rect(screen, (60, 60, 60),
+                            (bar_x, bar_y, bar_width, bar_height))
+            pygame.draw.rect(screen, health_colour,
+                            (bar_x, bar_y, bar_width * health_percentage, bar_height))
+    
+
 #variables
 active_controllers = {}
 
@@ -443,6 +465,8 @@ sub_wave_font = pygame.font.Font("fonts/PixelifySans-SemiBold.ttf", 36)
 player_font = pygame.font.Font("fonts/PixelifySans-Medium.ttf", 20)
 menu_title_font = pygame.font.Font("fonts/Bungee-Regular.ttf", 96)
 menu_option_font = pygame.font.Font("fonts/PixelifySans-SemiBold.ttf", 40)
+objective_font = pygame.font.Font("fonts/PixelifySans-Regular.ttf", 36)
+objective_detail_font = pygame.font.Font("fonts/PixelifySans-Regular.ttf", 24)
 
 icon = pygame.image.load("fightnans.ico")
 pygame.display.set_icon(icon)
@@ -457,6 +481,8 @@ menu_options = ["PLAY", "QUIT"]
 selected_menu_option = 0
 game_over_options = ["RESTART", "MAIN MENU"]
 selected_game_over_option = 0
+mission_complete_options = ["RESTART", "MAIN MENU"]
+selected_mission_complete_option = 0
 
 #game loop
 while running:
@@ -524,6 +550,20 @@ while running:
                     selected_game_over_option = (selected_game_over_option - 1) % len(game_over_options)
                 elif event.value[1] == -1:
                     selected_game_over_option = (selected_game_over_option + 1) % len(game_over_options)
+        #mission complete menu controls
+        if game_state == COMPLETE:
+            if event.type == pygame.JOYBUTTONDOWN:
+                if event.button == 0:
+                    if selected_mission_complete_option == 0:
+                        start_game()
+                        game_state = PLAYING
+                    elif selected_mission_complete_option == 1:
+                        game_state = MENU
+            if event.type == pygame.JOYHATMOTION:
+                if event.value[1] == 1:
+                    selected_mission_complete_option = (selected_mission_complete_option - 1) % len(mission_complete_options)
+                elif event.value[1] == -1:
+                    selected_mission_complete_option = (selected_mission_complete_option + 1) % len(mission_complete_options)
     
     dt = clock.tick(fps) /1000
     screen.fill(BG_COLOUR)
@@ -531,6 +571,9 @@ while running:
     #draw menu
     if game_state == MENU:
         draw_menu(screen)
+    
+    if game_state == COMPLETE:
+        draw_mission_complete(screen)
     
     elif game_state == PLAYING:
         #update + draw player
@@ -548,8 +591,8 @@ while running:
         #update projectiles
         for projectile in projectiles:
             projectile.update(dt)
-            #player-enemy hits
             if projectile.owner == "player":
+                #player-enemy hits
                 for enemy in enemies:
                     if not enemy.alive:
                         continue
@@ -563,6 +606,21 @@ while running:
                             enemy.alive = False
                             debug_print(debug_combat, "Enemy killed.")
                         break
+                #player-objective hits
+                if projectile.alive:
+                    for objective in objective_objects:
+                        if not objective.alive or current_wave.wave_number < objective.spawn_req:
+                            continue
+                        #collision detection
+                        if projectile.check_collision(objective):
+                            projectile.alive = False
+                            objective.health -= projectile.damage
+                            debug_print(debug_combat, f"Player projectile collided with objective. Objective health reduced by {projectile.damage}. Objective health: {objective.health}.")
+                            if objective.health <= 0:
+                                objective.health = 0
+                                objective.alive = False
+                                debug_print(debug_combat, "Objective killed.")
+                            break
             #enemy-player hits
             elif projectile.owner == "enemy":
                 for player in players:
@@ -587,6 +645,14 @@ while running:
         for projectile in projectiles:
             projectile.draw(screen)
         
+        #draw objectives
+        for object in objective_objects:
+            if object.alive:
+                if current_wave.wave_number >= object.spawn_req:
+                    object.draw(screen)
+                    object.draw_health_bar(screen)
+        
+        #draw psup and health bar
         for player in players:
             if player.alive:
                 player.draw_name(screen)
@@ -627,6 +693,20 @@ while running:
             enemies_text = sub_wave_font.render(f"{len(enemies) + (current_wave.enemies_per_wave - current_wave.enemies_spawned)}/{current_wave.enemies_per_wave} ENEMIES REMAINING", True, (200, 200, 200))
             enemies_x = (screen_width - enemies_text.get_width()) / 2
             screen.blit(enemies_text, (enemies_x, 60))
+        
+        #draw objective text
+        for object in objective_objects:
+            objective_text = objective_font.render(f"OBJECTIVE(S):", True, (255, 255, 255))
+            if current_wave.wave_number < object.spawn_req:
+                objective_detail = objective_detail_font.render(f"-Survive until wave {object.spawn_req}", True, (255, 255, 255))
+            else:
+                objective_detail = objective_detail_font.render(f"-Destroy the {objective.name} ({object.health}/{object.max_health})", True, (255, 255, 255))
+            screen.blit(objective_text, (20, 20))
+            screen.blit(objective_detail, (20, 70))
+        
+        for object in objective_objects:
+            if not object.alive:
+                game_state = COMPLETE
         
         if not any(player.alive for player in players):
             game_state = GAME_OVER
