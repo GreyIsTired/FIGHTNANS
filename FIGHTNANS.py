@@ -2,6 +2,7 @@
 import pygame
 import sys
 import random
+import os
 
 #constants
 BG_COLOUR = (25, 25, 25)
@@ -20,7 +21,8 @@ GAME_OVER = "game_over"
 COMPLETE = "complete"
 PLAYER_COLOURS = {1:(70, 130, 220),2:(70, 190, 90)}
 
-#configuration variables
+#variables
+ver = "Prototype v0.4.1"
 screen_width = 1280
 screen_height = 720
 fps = 60
@@ -39,6 +41,14 @@ debug_combat = False
 def debug_print(category, message):
     if category:
         print(message)
+
+#makes resource paths work in fightnans.exe
+def resource_path(relative_path):
+    try:
+        base_path = sys._MEIPASS
+    except AttributeError:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
 
 def spawn_enemy():
     edge = random.choice(["top", "bottom", "left", "right"])
@@ -69,7 +79,10 @@ def start_game():
 def draw_menu(screen):
     title_text = menu_title_font.render("FIGHTNANS", True, (255, 255, 255))
     title_x = (screen_width - title_text.get_width()) / 2
-    screen.blit(title_text, (title_x, 180))
+    ver_text = menu_ver_font.render(f"{ver}", True, (170, 170, 170))
+    ver_x = (screen_width - ver_text.get_width()) / 2
+    screen.blit(title_text, (title_x, 160))
+    screen.blit(ver_text, (ver_x, 260))
     for i, option in enumerate(menu_options):
         colour = (255, 255, 255) if i == selected_menu_option else (140, 140, 140)
         option_text = menu_option_font.render(option, True, colour)
@@ -460,20 +473,20 @@ active_controllers = {}
 #initialisation
 start_game()
 pygame.init()
-wave_font = pygame.font.Font("fonts/PixelifySans-Bold.ttf", 48)
-sub_wave_font = pygame.font.Font("fonts/PixelifySans-SemiBold.ttf", 36)
-player_font = pygame.font.Font("fonts/PixelifySans-Medium.ttf", 20)
-menu_title_font = pygame.font.Font("fonts/Bungee-Regular.ttf", 96)
-menu_option_font = pygame.font.Font("fonts/PixelifySans-SemiBold.ttf", 40)
-objective_font = pygame.font.Font("fonts/PixelifySans-Regular.ttf", 36)
-objective_detail_font = pygame.font.Font("fonts/PixelifySans-Regular.ttf", 24)
+wave_font = pygame.font.Font(resource_path("fonts/PixelifySans-Bold.ttf"), 48)
+sub_wave_font = pygame.font.Font(resource_path("fonts/PixelifySans-SemiBold.ttf"), 36)
+player_font = pygame.font.Font(resource_path("fonts/PixelifySans-Medium.ttf"), 20)
+menu_title_font = pygame.font.Font(resource_path("fonts/Bungee-Regular.ttf"), 96)
+menu_ver_font = pygame.font.Font(resource_path("fonts/PixelifySans-Regular.ttf"), 36)
+menu_option_font = pygame.font.Font(resource_path("fonts/PixelifySans-SemiBold.ttf"), 40)
+objective_font = pygame.font.Font(resource_path("fonts/PixelifySans-Regular.ttf"), 36)
+objective_detail_font = pygame.font.Font(resource_path("fonts/PixelifySans-Regular.ttf"), 24)
 
-icon = pygame.image.load("fightnans.ico")
-pygame.display.set_icon(icon)
+pygame.display.set_icon(pygame.image.load(resource_path("fightnans.ico")))
 pygame.joystick.init()
 
 screen = pygame.display.set_mode((screen_width, screen_height))
-pygame.display.set_caption("FIGHTNANS Prototype v0.3")
+pygame.display.set_caption(f"FIGHTNANS {ver}")
 clock = pygame.time.Clock()
 running = True
 game_state = MENU
